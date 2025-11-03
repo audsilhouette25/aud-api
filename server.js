@@ -810,10 +810,54 @@ app.get("/auth/csrf", csrfProtection, (req, res) => {
   return res.json({ csrfToken: req.csrfToken() });
 });
 
+app.post("/auth/send-verification", csrfProtection, async (req, res) => {
+  const VerifySchema = z.object({
+    email: z.string().email(),
+  });
+
+  const parsed = VerifySchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ ok: false, error: "INVALID_EMAIL" });
+
+  const { email } = parsed.data;
+  const normEmail = String(email || "").toLowerCase();
+
+  // Check if email already exists
+  const existing = getUserByEmail(normEmail);
+  if (existing) {
+    return res.status(409).json({ ok: false, error: "DUPLICATE_EMAIL", message: "This email is already registered." });
+  }
+
+  // Generate and store verification code
+  const code = generateVerificationCode();
+  storeVerificationCode(normEmail, code);
+
+  // Send email
+  if (transporter) {
+    try {
+      await transporter.sendMail({
+        from: `"AUD" <${EMAIL_USER}>`,
+        to: normEmail,
+        subject: "Your AUD Verification Code",
+        text: `Your verification code is: ${code}\n\nThis code will expire in 10 minutes.`,
+        html: `<p>Your verification code is: <strong>${code}</strong></p><p>This code will expire in 10 minutes.</p>`,
+      });
+      return res.json({ ok: true, message: "Verification code sent to your email." });
+    } catch (e) {
+      console.error("[send-verification] Email send failed:", e);
+      return res.status(500).json({ ok: false, error: "EMAIL_SEND_FAILED", message: "Failed to send verification email." });
+    }
+  } else {
+    // No email configured - for development, return code in response
+    console.log(`[send-verification] Code for ${normEmail}: ${code}`);
+    return res.json({ ok: true, message: "Verification code sent.", code: process.env.NODE_ENV === "development" ? code : undefined });
+  }
+});
+
 app.post("/auth/signup", csrfProtection, async (req, res) => {
   const SignupSchema = z.object({
     email: z.string().email(),
     password: z.string().min(8),
+    verificationCode: z.string().optional(),
     name: z.string().optional(),
     birthdate: z.string().optional(),
   });
@@ -821,8 +865,18 @@ app.post("/auth/signup", csrfProtection, async (req, res) => {
   const parsed = SignupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: "INVALID" });
 
-  const { email, password, name, birthdate } = parsed.data;
+  const { email, password, verificationCode, name, birthdate } = parsed.data;
   const normEmail = String(email || "").toLowerCase();
+
+  // Verify verification code if provided
+  if (verificationCode) {
+    const isValid = verifyCode(normEmail, verificationCode);
+    if (!isValid) {
+      return res.status(400).json({ ok: false, error: "INVALID_VERIFICATION_CODE", message: "Invalid or expired verification code." });
+    }
+    // Clear the code after successful verification
+    verificationCodes.delete(normEmail);
+  }
 
   const hash = await argon2.hash(password, {
     type: argon2.argon2id, memoryCost: 65536, timeCost: 3, parallelism: 1,
