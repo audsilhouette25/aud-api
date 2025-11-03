@@ -25,7 +25,7 @@ const installGatewayRoutes = require("./routes/gateway.routes");
 const EMAIL_RX = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
 const isEmail = (s) => EMAIL_RX.test(String(s || "").trim());
 
-const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "audsilhouette@gmail.com")
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "audsilhouette25@gmail.com")
   .split(",").map(s => String(s || "").trim().toLowerCase()).filter(Boolean);
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "dlghkdls398!a"; // 반드시 환경변수로 옮기세요.
 
