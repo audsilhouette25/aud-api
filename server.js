@@ -17,6 +17,7 @@ const { z } = require("zod");
 const { v4: uuid } = require("uuid");
 const compression = require("compression");
 const sharp = require("sharp");
+const nodemailer = require("nodemailer");
 require("dotenv").config();
 const nfcRoutes = require("./routes/nfc.routes");
 const installGatewayRoutes = require("./routes/gateway.routes");
@@ -53,6 +54,8 @@ const {
   createUser,
   getUserByEmail,
   getUserById,
+  getUserByNameAndBirthdate,
+  updateUserPassword,
   getUserState,
   putUserState,
   putStateByEmail,
@@ -68,6 +71,48 @@ const {
 } = require("./db");
 
 const { startBleBridge } = require("./ble-bridge");
+
+// === Email configuration (nodemailer) ===
+const EMAIL_USER = process.env.EMAIL_USER || "audsilhouette25@gmail.com";
+const EMAIL_PASS = process.env.EMAIL_PASS || ""; // Gmail App Password
+let transporter = null;
+
+if (EMAIL_PASS) {
+  transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: EMAIL_USER,
+      pass: EMAIL_PASS,
+    },
+  });
+  console.log("[email] Nodemailer configured for", EMAIL_USER);
+} else {
+  console.warn("[email] EMAIL_PASS not set - email sending disabled");
+}
+
+// In-memory verification code store: { email: { code, expiresAt } }
+const verificationCodes = new Map();
+
+function generateVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000)); // 6-digit code
+}
+
+function storeVerificationCode(email, code) {
+  verificationCodes.set(email.toLowerCase(), {
+    code,
+    expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+  });
+}
+
+function verifyCode(email, code) {
+  const stored = verificationCodes.get(email.toLowerCase());
+  if (!stored) return false;
+  if (Date.now() > stored.expiresAt) {
+    verificationCodes.delete(email.toLowerCase());
+    return false;
+  }
+  return stored.code === code;
+}
 
 // --- Persistent data root ---
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, ".data"); // Render: /var/data
@@ -766,10 +811,17 @@ app.get("/auth/csrf", csrfProtection, (req, res) => {
 });
 
 app.post("/auth/signup", csrfProtection, async (req, res) => {
-  const parsed = EmailPw.safeParse(req.body);
+  const SignupSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(8),
+    name: z.string().optional(),
+    birthdate: z.string().optional(),
+  });
+
+  const parsed = SignupSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ ok: false, error: "INVALID" });
 
-  const { email, password } = parsed.data;
+  const { email, password, name, birthdate } = parsed.data;
   const normEmail = String(email || "").toLowerCase();
 
   const hash = await argon2.hash(password, {
@@ -777,7 +829,7 @@ app.post("/auth/signup", csrfProtection, async (req, res) => {
   });
 
   try {
-    const userId = createUser(normEmail, hash);
+    const userId = createUser(normEmail, hash, name, birthdate);
 
     // 1) 상태 초기화 (멱등)
     try { deleteAllStatesForEmail(normEmail); } catch {}
@@ -851,6 +903,144 @@ app.post("/auth/logout-beacon", (req, res) => {
     res.clearCookie(CSRF_COOKIE_NAME, clearOpts);
     res.json({ ok: true });
   });
+});
+
+// === Recovery Endpoints ===
+
+// Find Email by Name + Birthdate
+app.post("/api/find-email", csrfProtection, async (req, res) => {
+  const FindEmailSchema = z.object({
+    name: z.string().min(1),
+    birthdate: z.string().min(1),
+  });
+
+  const parsed = FindEmailSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, message: "Please provide name and birthdate." });
+  }
+
+  const { name, birthdate } = parsed.data;
+
+  try {
+    const user = getUserByNameAndBirthdate(name, birthdate);
+    if (!user) {
+      return res.status(404).json({ ok: false, message: "No account found with this name and birthdate." });
+    }
+
+    // Mask email: show first 2 chars + *** + @domain
+    const email = user.email;
+    const [local, domain] = email.split("@");
+    const maskedLocal = local.length > 2 ? local.substring(0, 2) + "***" : "***";
+    const maskedEmail = `${maskedLocal}@${domain}`;
+
+    return res.json({ ok: true, email: maskedEmail });
+  } catch (e) {
+    console.error("[find-email] error:", e);
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
+});
+
+// Send Password Reset Code
+app.post("/api/send-reset-code", csrfProtection, async (req, res) => {
+  const SendCodeSchema = z.object({
+    email: z.string().email(),
+  });
+
+  const parsed = SendCodeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, message: "Please provide a valid email." });
+  }
+
+  const { email } = parsed.data;
+  const normEmail = email.toLowerCase();
+
+  try {
+    const user = getUserByEmail(normEmail);
+    if (!user) {
+      return res.status(404).json({ ok: false, message: "No account found with this email." });
+    }
+
+    if (!transporter) {
+      return res.status(503).json({ ok: false, message: "Email service not configured." });
+    }
+
+    const code = generateVerificationCode();
+    storeVerificationCode(normEmail, code);
+
+    // Send email
+    await transporter.sendMail({
+      from: `"AUD" <${EMAIL_USER}>`,
+      to: normEmail,
+      subject: "AUD Password Reset Code",
+      text: `Your password reset code is: ${code}\n\nThis code will expire in 10 minutes.`,
+      html: `
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2>AUD Password Reset</h2>
+          <p>Your password reset code is:</p>
+          <h1 style="background: #f5f5f5; padding: 20px; text-align: center; letter-spacing: 0.5em;">${code}</h1>
+          <p>This code will expire in 10 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        </div>
+      `,
+    });
+
+    return res.json({ ok: true, message: "Verification code sent to your email." });
+  } catch (e) {
+    console.error("[send-reset-code] error:", e);
+    return res.status(500).json({ ok: false, message: "Failed to send verification code." });
+  }
+});
+
+// Reset Password with Verification Code
+app.post("/api/reset-password", csrfProtection, async (req, res) => {
+  const ResetPasswordSchema = z.object({
+    email: z.string().email(),
+    code: z.string().length(6),
+    newPassword: z.string().min(8),
+  });
+
+  const parsed = ResetPasswordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ ok: false, message: "Invalid request. Please check all fields." });
+  }
+
+  const { email, code, newPassword } = parsed.data;
+  const normEmail = email.toLowerCase();
+
+  try {
+    // Verify code
+    if (!verifyCode(normEmail, code)) {
+      return res.status(400).json({ ok: false, message: "Invalid or expired verification code." });
+    }
+
+    // Check user exists
+    const user = getUserByEmail(normEmail);
+    if (!user) {
+      return res.status(404).json({ ok: false, message: "No account found with this email." });
+    }
+
+    // Hash new password
+    const hash = await argon2.hash(newPassword, {
+      type: argon2.argon2id,
+      memoryCost: 65536,
+      timeCost: 3,
+      parallelism: 1,
+    });
+
+    // Update password
+    const success = updateUserPassword(normEmail, hash);
+    if (!success) {
+      return res.status(500).json({ ok: false, message: "Failed to update password." });
+    }
+
+    // Clear verification code
+    verificationCodes.delete(normEmail);
+
+    return res.json({ ok: true, message: "Password reset successful." });
+  } catch (e) {
+    console.error("[reset-password] error:", e);
+    return res.status(500).json({ ok: false, message: "Server error." });
+  }
 });
 
 app.post("/api/audlab/submit", requireLogin, bigJson, async (req, res) => {

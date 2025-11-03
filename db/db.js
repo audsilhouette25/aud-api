@@ -107,6 +107,12 @@ if (!columnExists("users", "display_name")) {
 if (!columnExists("users", "avatar_url")) {
   db.exec(`ALTER TABLE users ADD COLUMN avatar_url TEXT`);
 }
+if (!columnExists("users", "name")) {
+  db.exec(`ALTER TABLE users ADD COLUMN name TEXT`);
+}
+if (!columnExists("users", "birthdate")) {
+  db.exec(`ALTER TABLE users ADD COLUMN birthdate TEXT`);
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers (정규화)
@@ -135,16 +141,16 @@ function normalizeJib(jib) {
 // Prepared Statements
 // ─────────────────────────────────────────────────────────────
 const stmtInsertUser = db.prepare(`
-  INSERT INTO users (email, pw_hash, created_at, display_name, avatar_url)
-  VALUES (LOWER(?), ?, ?, NULL, NULL)
+  INSERT INTO users (email, pw_hash, created_at, display_name, avatar_url, name, birthdate)
+  VALUES (LOWER(?), ?, ?, NULL, NULL, ?, ?)
 `);
 const stmtGetUserByEmail = db.prepare(`
-  SELECT id, email, pw_hash, created_at, display_name, avatar_url
+  SELECT id, email, pw_hash, created_at, display_name, avatar_url, name, birthdate
   FROM users
   WHERE email = LOWER(?)
 `);
 const stmtGetUserById = db.prepare(`
-  SELECT id, email, pw_hash, created_at, display_name, avatar_url
+  SELECT id, email, pw_hash, created_at, display_name, avatar_url, name, birthdate
   FROM users
   WHERE id = ?
 `);
@@ -236,10 +242,10 @@ const stmtDeleteAudlabById = db.prepare(`DELETE FROM audlab_records WHERE id = ?
  * Create user (email must be unique & already validated).
  * Sets display_name default to email local-part to avoid "member".
  */
-function createUser(email, pwHash) {
+function createUser(email, pwHash, name = null, birthdate = null) {
   const createdAt = Date.now();
   const normEmail = normalizeEmail(email);
-  const info = stmtInsertUser.run(normEmail, pwHash, createdAt);
+  const info = stmtInsertUser.run(normEmail, pwHash, createdAt, name, birthdate);
   const userId = Number(info.lastInsertRowid);
 
   try {
@@ -265,6 +271,8 @@ function getUserByEmail(email) {
     createdAt: row.created_at,
     displayName: row.display_name || null,
     avatarUrl: row.avatar_url || null,
+    name: row.name || null,
+    birthdate: row.birthdate || null,
   };
 }
 function getUserById(id) {
@@ -277,7 +285,37 @@ function getUserById(id) {
     createdAt: row.created_at,
     displayName: row.display_name || null,
     avatarUrl: row.avatar_url || null,
+    name: row.name || null,
+    birthdate: row.birthdate || null,
   };
+}
+
+function getUserByNameAndBirthdate(name, birthdate) {
+  const stmt = db.prepare(`
+    SELECT id, email, pw_hash, created_at, display_name, avatar_url, name, birthdate
+    FROM users
+    WHERE name = ? AND birthdate = ?
+    LIMIT 1
+  `);
+  const row = stmt.get(name, birthdate);
+  if (!row) return null;
+  return {
+    id: row.id,
+    email: row.email,
+    pwHash: row.pw_hash,
+    createdAt: row.created_at,
+    displayName: row.display_name || null,
+    avatarUrl: row.avatar_url || null,
+    name: row.name || null,
+    birthdate: row.birthdate || null,
+  };
+}
+
+function updateUserPassword(email, newPwHash) {
+  const normEmail = normalizeEmail(email);
+  const stmt = db.prepare(`UPDATE users SET pw_hash = ? WHERE email = ?`);
+  const info = stmt.run(newPwHash, normEmail);
+  return info.changes > 0;
 }
 
 function putAudlabRecord(meta) {
@@ -503,7 +541,9 @@ module.exports = {
   createUser,
   getUserByEmail,
   getUserById,
+  getUserByNameAndBirthdate,
   updateUserProfile,
+  updateUserPassword,
   deleteUser,
 
   // states
