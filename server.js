@@ -964,12 +964,14 @@ app.post("/auth/login", csrfProtection, async (req, res) => {
 
   // Generate JWT token
   const token = generateToken(row.id, email.toLowerCase());
+  console.log("[JWT] Generated token for user:", row.id, "token:", token ? token.substring(0, 20) + "..." : "FAILED");
 
   // Also maintain session for backwards compatibility
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ ok: false });
     req.session.uid = row.id;
     markNavigate(req);
+    console.log("[JWT] Sending response with token:", !!token);
     return res.json({
       ok: true,
       id: row.id,
