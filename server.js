@@ -18,7 +18,6 @@ const { v4: uuid } = require("uuid");
 const compression = require("compression");
 const sharp = require("sharp");
 const nodemailer = require("nodemailer");
-const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const nfcRoutes = require("./routes/nfc.routes");
 const installGatewayRoutes = require("./routes/gateway.routes");
@@ -31,63 +30,9 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || "audsilhouette25@gmail.com")
   .split(",").map(s => String(s || "").trim().toLowerCase()).filter(Boolean);
 const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "dlghkdls398!a"; // 반드시 환경변수로 옮기세요.
 
-// JWT configuration
-const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
-const JWT_EXPIRES_IN = "7d"; // 7 days
-
 function isAdminEmail(email) {
   const e = String(email || "").trim().toLowerCase();
   return ADMIN_EMAILS.includes(e);
-}
-
-// JWT helper functions
-function generateToken(userId, email) {
-  return jwt.sign(
-    {
-      uid: userId,
-      email: email,
-      iat: Math.floor(Date.now() / 1000)
-    },
-    JWT_SECRET,
-    { expiresIn: JWT_EXPIRES_IN }
-  );
-}
-
-function verifyToken(token) {
-  try {
-    return jwt.verify(token, JWT_SECRET);
-  } catch (e) {
-    return null;
-  }
-}
-
-// JWT middleware to replace session-based auth
-function authenticateJWT(req, res, next) {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return res.status(401).json({ ok: false, error: 'UNAUTHORIZED', message: 'No token provided' });
-  }
-
-  const token = authHeader.substring(7);
-  const decoded = verifyToken(token);
-
-  if (!decoded) {
-    return res.status(401).json({ ok: false, error: 'INVALID_TOKEN', message: 'Invalid or expired token' });
-  }
-
-  // Attach user info to request (similar to session)
-  req.user = {
-    uid: decoded.uid,
-    email: decoded.email
-  };
-
-  // For backwards compatibility with existing code that uses req.session
-  req.session = req.session || {};
-  req.session.uid = decoded.uid;
-  req.session.email = decoded.email;
-
-  next();
 }
 
 async function seedAdminUsers() {
@@ -963,20 +908,13 @@ app.post("/auth/login", csrfProtection, async (req, res) => {
   const ok = await argon2.verify(row.pwHash ?? row.pw_hash, password);
   if (!ok) return res.status(400).json({ ok: false, error: "BAD_CREDENTIALS" });
 
-  // Generate JWT token
-  const token = generateToken(row.id, email.toLowerCase());
-  console.log("[JWT] Generated token for user:", row.id, "token:", token ? token.substring(0, 20) + "..." : "FAILED");
-
-  // Also maintain session for backwards compatibility
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ ok: false });
     req.session.uid = row.id;
     markNavigate(req);
-    console.log("[JWT] Sending response with token:", !!token);
     return res.json({
       ok: true,
       id: row.id,
-      token: token,  // Return JWT token
       email: email.toLowerCase()
     });
   });
@@ -2199,28 +2137,10 @@ app.patch("/auth/me", requireLogin, csrfProtection, async (req, res) => {
 function meHandler(req, res) {
   sendNoStore(res);
 
-  // Try JWT authentication first
-  const authHeader = req.headers.authorization;
-  let uid = null;
-
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    const token = authHeader.substring(7);
-    const decoded = verifyToken(token);
-    if (decoded) {
-      uid = decoded.uid;
-      // Set up session-like object for backwards compatibility
-      if (!req.session) req.session = {};
-      req.session.uid = decoded.uid;
-      req.session.email = decoded.email;
-    }
-  } else if (req.session && req.session.uid) {
-    uid = req.session.uid;
-  }
-
   const base = statusPayload(req);
-  if (!base.authenticated && !uid) return res.json(base);
+  if (!base.authenticated) return res.json(base);
 
-  const u = getUserById(uid || req.session.uid);
+  const u = getUserById(req.session.uid);
 
   let displayName = null;
   try {
