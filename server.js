@@ -64,6 +64,30 @@ function extractBearerToken(req) {
   return null;
 }
 
+// Middleware: JWT or Session authentication
+function authJWTorSession(req, res, next) {
+  // Try JWT first
+  const token = extractBearerToken(req);
+  if (token) {
+    const decoded = verifyJWT(token);
+    if (decoded && decoded.uid) {
+      if (!req.session) req.session = {};
+      req.session.uid = decoded.uid;
+      req.session.email = decoded.email;
+      req.isJWT = true;
+      return next();
+    }
+  }
+
+  // Fall back to session
+  if (req.session && req.session.uid) {
+    return next();
+  }
+
+  // Not authenticated
+  return res.status(401).json({ ok: false, error: "UNAUTHORIZED" });
+}
+
 async function seedAdminUsers() {
   try {
     for (const email of ADMIN_EMAILS) {
@@ -600,7 +624,22 @@ const csrfProtection = csrf({
 
 // 유틸 미들웨어
 function ensureAuth(req, res, next) {
+  // Try JWT first
+  const token = extractBearerToken(req);
+  if (token) {
+    const decoded = verifyJWT(token);
+    if (decoded && decoded.uid) {
+      if (!req.session) req.session = {};
+      req.session.uid = decoded.uid;
+      req.session.email = decoded.email;
+      req.isJWT = true;
+      return next();
+    }
+  }
+
+  // Fall back to session
   if (req.session?.uid) return next();
+
   const wantsJSON =
     req.path.startsWith("/api") ||
     (req.get("accept") || "").includes("application/json");
@@ -608,8 +647,24 @@ function ensureAuth(req, res, next) {
   const nextUrl = req.originalUrl || "/";
   return res.redirect("/login.html?next=" + encodeURIComponent(nextUrl));
 }
+
 function requireLogin(req, res, next) {
+  // Try JWT first
+  const token = extractBearerToken(req);
+  if (token) {
+    const decoded = verifyJWT(token);
+    if (decoded && decoded.uid) {
+      if (!req.session) req.session = {};
+      req.session.uid = decoded.uid;
+      req.session.email = decoded.email;
+      req.isJWT = true;
+      return next();
+    }
+  }
+
+  // Fall back to session
   if (req.session?.uid) return next();
+
   res.status(401).json({ ok: false, error: "auth_required" });
 }
 function getUserRowOrNull(uid) {
