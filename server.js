@@ -927,23 +927,39 @@ app.post("/auth/signup", csrfProtection, async (req, res) => {
 });
 
 app.post("/auth/login", csrfProtection, async (req, res) => {
+  console.log("[LOGIN] Request received from:", req.get("origin"));
   const parsed = EmailPw.safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ ok: false, error: "INVALID" });
+  if (!parsed.success) {
+    console.log("[LOGIN] Validation failed:", parsed.error);
+    return res.status(400).json({ ok: false, error: "INVALID" });
+  }
 
   const { email, password } = parsed.data;
+  console.log("[LOGIN] Attempting login for:", email);
   const row = getUserByEmail(email.toLowerCase());
-  if (!row) return res.status(400).json({ ok: false, error: "NO_USER" });
+  if (!row) {
+    console.log("[LOGIN] User not found:", email);
+    return res.status(400).json({ ok: false, error: "NO_USER" });
+  }
 
   const ok = await argon2.verify(row.pwHash ?? row.pw_hash, password);
-  if (!ok) return res.status(400).json({ ok: false, error: "BAD_CREDENTIALS" });
+  if (!ok) {
+    console.log("[LOGIN] Password verification failed for:", email);
+    return res.status(400).json({ ok: false, error: "BAD_CREDENTIALS" });
+  }
 
   // Generate JWT token
   const token = generateJWT(row.id, email.toLowerCase());
+  console.log("[LOGIN] JWT token generated for user:", row.id);
 
   req.session.regenerate((err) => {
-    if (err) return res.status(500).json({ ok: false });
+    if (err) {
+      console.log("[LOGIN] Session regeneration failed:", err);
+      return res.status(500).json({ ok: false });
+    }
     req.session.uid = row.id;
     markNavigate(req);
+    console.log("[LOGIN] Success - returning token for:", email);
     return res.json({
       ok: true,
       id: row.id,
