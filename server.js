@@ -2241,19 +2241,28 @@ app.patch("/auth/me", requireLogin, csrfProtection, async (req, res) => {
 function meHandler(req, res) {
   sendNoStore(res);
 
+  console.log("[/auth/me] Request received");
+
   // Try JWT authentication first
   const token = extractBearerToken(req);
   if (token) {
+    console.log("[/auth/me] JWT token found:", token.substring(0, 20) + "...");
     const decoded = verifyJWT(token);
     if (decoded && decoded.uid) {
+      console.log("[/auth/me] JWT verified for user:", decoded.uid);
       // Set session for backwards compatibility
       if (!req.session) req.session = {};
       req.session.uid = decoded.uid;
       req.session.email = decoded.email;
+    } else {
+      console.log("[/auth/me] JWT verification failed");
     }
+  } else {
+    console.log("[/auth/me] No JWT token, checking session");
   }
 
   const base = statusPayload(req);
+  console.log("[/auth/me] Status payload:", { authenticated: base.authenticated, uid: req.session?.uid });
   if (!base.authenticated) return res.json(base);
 
   const u = getUserById(req.session.uid);
