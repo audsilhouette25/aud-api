@@ -981,7 +981,7 @@ app.post("/auth/signup", csrfProtection, async (req, res) => {
   }
 });
 
-app.post("/auth/login", csrfProtection, async (req, res) => {
+app.post("/auth/login", async (req, res) => {
   console.log("[LOGIN] Request received from:", req.get("origin"));
   const parsed = EmailPw.safeParse(req.body);
   if (!parsed.success) {
