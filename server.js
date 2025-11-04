@@ -18,6 +18,7 @@ const { v4: uuid } = require("uuid");
 const compression = require("compression");
 const sharp = require("sharp");
 const nodemailer = require("nodemailer");
+const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const nfcRoutes = require("./routes/nfc.routes");
 const installGatewayRoutes = require("./routes/gateway.routes");
@@ -33,6 +34,34 @@ const ADMIN_SEED_PASSWORD = process.env.ADMIN_SEED_PASSWORD || "dlghkdls398!a"; 
 function isAdminEmail(email) {
   const e = String(email || "").trim().toLowerCase();
   return ADMIN_EMAILS.includes(e);
+}
+
+// === JWT Configuration ===
+const JWT_SECRET = process.env.JWT_SECRET || "your-secret-key-change-in-production";
+const JWT_EXPIRES_IN = "7d";
+
+function generateJWT(userId, email) {
+  return jwt.sign(
+    { uid: userId, email: email },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRES_IN }
+  );
+}
+
+function verifyJWT(token) {
+  try {
+    return jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return null;
+  }
+}
+
+function extractBearerToken(req) {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith("Bearer ")) {
+    return authHeader.substring(7);
+  }
+  return null;
 }
 
 async function seedAdminUsers() {
@@ -908,6 +937,9 @@ app.post("/auth/login", csrfProtection, async (req, res) => {
   const ok = await argon2.verify(row.pwHash ?? row.pw_hash, password);
   if (!ok) return res.status(400).json({ ok: false, error: "BAD_CREDENTIALS" });
 
+  // Generate JWT token
+  const token = generateJWT(row.id, email.toLowerCase());
+
   req.session.regenerate((err) => {
     if (err) return res.status(500).json({ ok: false });
     req.session.uid = row.id;
@@ -915,7 +947,8 @@ app.post("/auth/login", csrfProtection, async (req, res) => {
     return res.json({
       ok: true,
       id: row.id,
-      email: email.toLowerCase()
+      email: email.toLowerCase(),
+      token: token
     });
   });
 });
@@ -2136,6 +2169,18 @@ app.patch("/auth/me", requireLogin, csrfProtection, async (req, res) => {
 // me & ping
 function meHandler(req, res) {
   sendNoStore(res);
+
+  // Try JWT authentication first
+  const token = extractBearerToken(req);
+  if (token) {
+    const decoded = verifyJWT(token);
+    if (decoded && decoded.uid) {
+      // Set session for backwards compatibility
+      if (!req.session) req.session = {};
+      req.session.uid = decoded.uid;
+      req.session.email = decoded.email;
+    }
+  }
 
   const base = statusPayload(req);
   if (!base.authenticated) return res.json(base);
