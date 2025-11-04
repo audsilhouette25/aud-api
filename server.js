@@ -529,7 +529,8 @@ if (CROSS_SITE) {
     },
     credentials: true,
     methods: ["GET","HEAD","POST","PUT","PATCH","DELETE","OPTIONS"],
-    allowedHeaders: ["Content-Type","X-CSRF-Token","x-csrf-token","X-XSRF-Token","x-xsrf-token"],
+    allowedHeaders: ["Content-Type","X-CSRF-Token","x-csrf-token","X-XSRF-Token","x-xsrf-token","Authorization"],
+    exposedHeaders: ["X-CSRF-Token","x-csrf-token"],
     maxAge: 86400,
   };
   app.use(cors(corsOptions));
