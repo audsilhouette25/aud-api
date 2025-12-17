@@ -927,9 +927,17 @@ app.post("/auth/send-verification", csrfProtection, async (req, res) => {
       await transporter.sendMail({
         from: `"AUD" <${EMAIL_USER}>`,
         to: normEmail,
-        subject: "Your AUD Verification Code",
+        subject: "AUD Verification Code",
         text: `Your verification code is: ${code}\n\nThis code will expire in 10 minutes.`,
-        html: `<p>Your verification code is: <strong>${code}</strong></p><p>This code will expire in 10 minutes.</p>`,
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2>AUD Email Verification</h2>
+            <p>Your verification code is:</p>
+            <h1 style="background: #f5f5f5; padding: 20px; text-align: center; letter-spacing: 0.5em;">${code}</h1>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you didn't request this, please ignore this email.</p>
+          </div>
+        `,
       });
       return res.json({ ok: true, message: "Verification code sent to your email." });
     } catch (e) {
