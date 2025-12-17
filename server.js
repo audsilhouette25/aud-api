@@ -1052,7 +1052,9 @@ app.post("/auth/logout-beacon", (req, res) => {
       if (u.host !== host) return res.status(403).json({ ok: false });
     } catch {}
   }
-  if (isRecentNavigate(req)) {
+  // force=true면 무조건 로그아웃 (명시적 로그아웃 버튼)
+  const forceLogout = req.body?.force === true || req.query?.force === "1";
+  if (!forceLogout && isRecentNavigate(req)) {
     return res.json({ ok: true, skipped: "recent-nav" });
   }
   const name = PROD ? "__Host-sid" : "sid";
