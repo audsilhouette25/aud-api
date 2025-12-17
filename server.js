@@ -458,7 +458,12 @@ async function handleAccountDelete(req, res) {
 
   // 세션/쿠키 정리
   const name = PROD ? "__Host-sid" : "sid";
-  const clearOpts = { path: "/", sameSite: CROSS_SITE ? "none" : "lax", secure: PROD || CROSS_SITE };
+  const clearOpts = {
+    path: "/",
+    sameSite: CROSS_SITE ? "none" : "lax",
+    secure: PROD || CROSS_SITE,
+    ...(CROSS_SITE ? { partitioned: true } : {}),
+  };
   const done = () => { try { res.clearCookie(name, clearOpts); } catch {}
                       try { res.clearCookie(CSRF_COOKIE_NAME, clearOpts); } catch {}
                       res.status(204).end(); };
@@ -1032,7 +1037,12 @@ app.post("/auth/nav", (req, res) => {
 // 명시적 로그아웃 (CSRF 불필요 - 로그아웃은 항상 허용)
 app.post("/auth/logout", (req, res) => {
   const name = PROD ? "__Host-sid" : "sid";
-  const clearOpts = { path: "/", sameSite: CROSS_SITE ? "none" : "lax", secure: PROD || CROSS_SITE };
+  const clearOpts = {
+    path: "/",
+    sameSite: CROSS_SITE ? "none" : "lax",
+    secure: PROD || CROSS_SITE,
+    ...(CROSS_SITE ? { partitioned: true } : {}),
+  };
   const done = () => {
     res.clearCookie(name, clearOpts);
     res.clearCookie(CSRF_COOKIE_NAME, clearOpts);
@@ -1045,7 +1055,12 @@ app.post("/auth/logout", (req, res) => {
 app.post("/auth/logout-beacon", (req, res) => {
   const origin = req.get("origin");
   const host = req.get("host");
-  const clearOpts = { path: "/", sameSite: CROSS_SITE ? "none" : "lax", secure: PROD || CROSS_SITE };
+  const clearOpts = {
+    path: "/",
+    sameSite: CROSS_SITE ? "none" : "lax",
+    secure: PROD || CROSS_SITE,
+    ...(CROSS_SITE ? { partitioned: true } : {}),
+  };
   if (origin) {
     try {
       const u = new URL(origin);
