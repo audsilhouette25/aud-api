@@ -1029,8 +1029,8 @@ app.post("/auth/nav", (req, res) => {
   return res.json({ ok: true });
 });
 
-// 명시적 로그아웃
-app.post("/auth/logout", csrfProtection, (req, res) => {
+// 명시적 로그아웃 (CSRF 불필요 - 로그아웃은 항상 허용)
+app.post("/auth/logout", (req, res) => {
   const name = PROD ? "__Host-sid" : "sid";
   const clearOpts = { path: "/", sameSite: CROSS_SITE ? "none" : "lax", secure: PROD || CROSS_SITE };
   const done = () => {
