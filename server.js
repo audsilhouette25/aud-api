@@ -608,6 +608,7 @@ const sessionMiddleware = session({
 app.use(sessionMiddleware);
 nfcRoutes.setSocketIO(io);  // Socket.IO 주입
 app.use("/api", nfcRoutes);
+console.log("[router] mounted nfc.routes at /api");
 
 // CSRF (쿠키 모드)
 const CSRF_COOKIE_NAME = PROD ? "__Host-csrf" : "csrf";
