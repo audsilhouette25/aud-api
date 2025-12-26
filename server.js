@@ -2324,6 +2324,53 @@ app.get("/api/healthz", (_req, res) => {
   res.json({ ok: true, bootId: BOOT_ID });
 });
 
+// ──────────────────────────────────────────────────────────
+// NFC Push API (ESP32 → 서버 → 브라우저)
+// ──────────────────────────────────────────────────────────
+const DEVICE_TOKEN = process.env.DEVICE_TOKEN || "aud-device-token";
+const nfcPushRateLimit = new Map(); // UID별 레이트 리밋
+const NFC_PUSH_RATE_MS = 2000; // 같은 UID 2초 내 중복 무시
+
+app.post("/api/nfc/push", express.json(), (req, res) => {
+  // 토큰 인증
+  const token = req.headers["x-device-token"];
+  if (token !== DEVICE_TOKEN) {
+    console.log("[nfc/push] unauthorized:", token);
+    return res.status(401).json({ ok: false, error: "unauthorized" });
+  }
+
+  const { uid } = req.body;
+  if (!uid || typeof uid !== "string") {
+    return res.status(400).json({ ok: false, error: "missing_uid" });
+  }
+
+  const normalizedUid = uid.trim().toUpperCase();
+  const now = Date.now();
+
+  // 레이트 리밋 체크
+  const lastTime = nfcPushRateLimit.get(normalizedUid) || 0;
+  if (now - lastTime < NFC_PUSH_RATE_MS) {
+    console.log("[nfc/push] rate limited:", normalizedUid);
+    return res.status(429).json({ ok: false, error: "rate_limited" });
+  }
+  nfcPushRateLimit.set(normalizedUid, now);
+
+  // 오래된 엔트리 정리 (메모리 누수 방지)
+  if (nfcPushRateLimit.size > 1000) {
+    const cutoff = now - 60000;
+    for (const [k, v] of nfcPushRateLimit) {
+      if (v < cutoff) nfcPushRateLimit.delete(k);
+    }
+  }
+
+  // Socket.IO로 브라우저에 브로드캐스트
+  const payload = { id: normalizedUid, ts: now, device: "esp32" };
+  io.emit("nfc", payload);
+
+  console.log("[nfc/push] broadcast:", normalizedUid);
+  res.json({ ok: true, uid: normalizedUid });
+});
+
 // [NEW] Labels catalog (자동 노출용)
 
 // ──────────────────────────────────────────────────────────
