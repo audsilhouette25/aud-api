@@ -606,6 +606,7 @@ const sessionMiddleware = session({
   },
 });
 app.use(sessionMiddleware);
+nfcRoutes.setSocketIO(io);  // Socket.IO 주입
 app.use("/api", nfcRoutes);
 
 // CSRF (쿠키 모드)

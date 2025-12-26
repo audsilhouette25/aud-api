@@ -62,4 +62,47 @@ router.delete("/nfc/label", (req, res) => {
   return res.json({ ok:true, ns, uid });
 });
 
+// ─────────────────────────────────────────────────────────────
+// POST /api/nfc/push — ESP32에서 UID 수신 → Socket.IO로 브로드캐스트
+// ─────────────────────────────────────────────────────────────
+const DEVICE_TOKEN = process.env.DEVICE_TOKEN || "aud-device-token";
+let io = null;  // Socket.IO 인스턴스 (서버에서 주입)
+
+router.setSocketIO = function(socketIO) {
+  io = socketIO;
+};
+
+router.post("/nfc/push", (req, res) => {
+  // 토큰 검증
+  const token = req.headers["x-device-token"];
+  if (token !== DEVICE_TOKEN) {
+    return res.status(401).json({ ok: false, error: "Invalid device token" });
+  }
+
+  const uid = normalizeUid(req.body?.uid || "");
+  if (!uid) {
+    return res.status(400).json({ ok: false, error: "uid required" });
+  }
+
+  const ts = req.body?.ts || Date.now();
+
+  console.log(`[nfc/push] UID=${uid} ts=${ts}`);
+
+  // Socket.IO로 브로드캐스트
+  if (io) {
+    io.emit("nfc", { id: uid, ts: Date.now(), device: "esp32" });
+  }
+
+  // label 조회해서 함께 반환
+  const ns = "public";
+  const row = db.prepare("SELECT label FROM nfc_map WHERE ns=? AND uid=?").get(ns, uid);
+
+  return res.json({
+    ok: true,
+    uid,
+    label: row?.label || null,
+    ts
+  });
+});
+
 module.exports = router;
