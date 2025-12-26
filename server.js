@@ -22,6 +22,7 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const nfcRoutes = require("./routes/nfc.routes");
 const installGatewayRoutes = require("./routes/gateway.routes");
+const attachSerialBridge = require("./server/serial-bridge");
 
 // === Admin config & seeding ===
 const EMAIL_RX = /^[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}$/i;
@@ -3598,5 +3599,14 @@ server.listen(PORT, () => {
     }
   } catch (e) {
     console.log("[ble] bridge failed to start:", e?.message || e);
+  }
+
+  // Serial NFC bridge (USB로 연결된 NFC 리더 지원)
+  try {
+    attachSerialBridge(io).catch((e) => {
+      console.log("[serial] bridge failed:", e?.message || e);
+    });
+  } catch (e) {
+    console.log("[serial] bridge init error:", e?.message || e);
   }
 });
