@@ -123,7 +123,7 @@ const {
   putJibStory,
 } = require("./db");
 
-const { startBleBridge } = require("./ble-bridge");
+const { startBleBridge, attachBleNamespaces } = require("./ble-bridge");
 
 // === Email configuration (nodemailer) ===
 const EMAIL_USER = process.env.EMAIL_USER || "audsilhouette25@gmail.com";
@@ -3596,6 +3596,10 @@ server.listen(PORT, () => {
     } else {
       console.log("[ble] startBleBridge not available");
     }
+    // 게이트웨이 네임스페이스 설정 (PC 게이트웨이 → 서버 → 브라우저)
+    const gatewayToken = process.env.GATEWAY_TOKEN || "aud-gw-secret-token";
+    attachBleNamespaces(io, { gatewayToken });
+    console.log("[ble] gateway namespaces attached (/gw, /stream)");
   } catch (e) {
     console.log("[ble] bridge failed to start:", e?.message || e);
   }
