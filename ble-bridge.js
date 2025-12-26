@@ -1,8 +1,26 @@
 // aud-api/ble-bridge.js
 // Noble로 BLE 광고 스캔 → Socket.IO로 'ble'/'nfc' 이벤트 브로드캐스트
-const noble = require("@abandonware/noble");
+// 클라우드 서버(Render 등)에서는 BLE 불가 → 안전하게 스킵
 
 const debug = (...a) => console.log('[ble]', ...a);
+
+// Noble은 BLE 어댑터가 없는 환경에서 require만 해도 크래시함
+// 따라서 조건부 로드
+let noble = null;
+function loadNoble() {
+  if (noble !== null) return noble;
+  if (String(process.env.ENABLE_BLE || "0") !== "1") {
+    // 명시적으로 ENABLE_BLE=1이 아니면 스킵
+    return null;
+  }
+  try {
+    noble = require("@abandonware/noble");
+    return noble;
+  } catch (e) {
+    debug("noble load failed:", e?.message || e);
+    return null;
+  }
+}
 
 /** 'UID:' 서명(0x55,0x49,0x44,0x3A) 뒤의 HEX를 ASCII로 읽어내기 */
 function extractUIDFromMfg(bytes) {
@@ -54,26 +72,33 @@ function acceptUID(uid) {
 function startBleBridge(io, opts = {}) {
   const { companyIdLE = 0xFFFF, log = true } = opts;
 
-  if (String(process.env.ENABLE_BLE || "1") === "0") {
-    if (log) debug("disabled via ENABLE_BLE=0");
+  // ENABLE_BLE=1이 아니면 스킵 (클라우드 서버 안전)
+  if (String(process.env.ENABLE_BLE || "0") !== "1") {
+    if (log) debug("skipped (set ENABLE_BLE=1 to enable)");
     return;
   }
 
-  noble.on("stateChange", async (st) => {
+  const nobleLib = loadNoble();
+  if (!nobleLib) {
+    if (log) debug("noble not available, skipping BLE scan");
+    return;
+  }
+
+  nobleLib.on("stateChange", async (st) => {
     if (log) debug("adapter state:", st);
     if (st === "poweredOn") {
       try {
-        await noble.startScanningAsync([], true); // duplicates 허용
+        await nobleLib.startScanningAsync([], true); // duplicates 허용
         if (log) debug("scanning started");
       } catch (e) {
         if (log) debug("startScanning error:", e?.message || e);
       }
     } else {
-      try { noble.stopScanning(); } catch {}
+      try { nobleLib.stopScanning(); } catch {}
     }
   });
 
-  noble.on("discover", (peripheral) => {
+  nobleLib.on("discover", (peripheral) => {
     const mfg = peripheral.advertisement?.manufacturerData; // Buffer
     if (!mfg || !mfg.length) return;
 
@@ -101,7 +126,7 @@ function startBleBridge(io, opts = {}) {
     io.emit("nfc", { id: uid, ts: Date.now(), device: "ble" });
   });
 
-  noble.on("warning", (msg) => {
+  nobleLib.on("warning", (msg) => {
     if (log) debug("warning:", msg);
   });
 
