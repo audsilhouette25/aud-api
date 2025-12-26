@@ -2305,10 +2305,13 @@ function meHandler(req, res) {
 
   const avatarUrl = latestAvatarUrl(req.session.uid);
 
+  const isAdmin = u ? isAdminEmail(u.email) : false;
+
   const payload = {
     ...base,
-    user: u ? { id: u.id, email: u.email, displayName } : null,
+    user: u ? { id: u.id, email: u.email, displayName, isAdmin } : null,
     ns: String(u?.email || "").toLowerCase(),
+    isAdmin,
   };
   if (u) {
     payload.email = u.email;
@@ -3200,8 +3203,9 @@ mountIfExists("./routes/likes.routes");
 // ──────────────────────────────────────────────────────────
 // 접근 정책: 보호된 페이지/엔드포인트
 // ──────────────────────────────────────────────────────────
-app.get(["/mine", "/mine.html"], ensureAuth, (req, res) => {
-  res.sendFile(path.join(PUBLIC_DIR, "mine.html"));
+// mine.html은 더 이상 사용하지 않음 → me.html로 리다이렉트
+app.get(["/mine", "/mine.html"], (_req, res) => {
+  res.redirect(301, "./me.html");
 });
 app.get(["/labelmine", "/labelmine.html"], ensureAuth, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, "labelmine.html"));
